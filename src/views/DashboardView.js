@@ -533,7 +533,7 @@ async function loadHistory() {
 async function stopServer() {
   if (!confirm('Stop the mail-man server?')) return;
   await api('POST', '/api/stop').catch(() => {});
-  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#858585;font-family:monospace;font-size:14px">✉ mail-man stopped. Run <code style=\'color:#9cdcfe;margin:0 6px\'>mm start</code> to restart.</div>';
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#858585;font-family:monospace;font-size:14px">✉ mail-man stopped. Run <code style="color:#9cdcfe;margin:0 6px">mm start</code> to restart.</div>';
 }
 
 // ── Copy response ────────────────────────────────────────
