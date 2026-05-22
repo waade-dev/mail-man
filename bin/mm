@@ -262,7 +262,7 @@ program.hook('preAction', async (_thisCmd, actionCmd) => {
 
   // Ping the server — if it doesn't respond, it's not running
   try {
-    const api = require('./src/utils/apiClient');
+    const api = require('../src/utils/apiClient');
     const { status } = await api.get('/api/health');
     if (status !== 200) throw new Error('unhealthy');
   } catch {
