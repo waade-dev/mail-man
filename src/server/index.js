@@ -271,8 +271,27 @@ async function router(req, res) {
     }
   });
 
+  // Track every open socket so we can destroy them on shutdown.
+  // Without this, server.close() waits for keep-alive connections
+  // (e.g. Chrome's open dashboard tab) to finish — which they never do.
+  const openSockets = new Set();
+  server.on('connection', socket => {
+    openSockets.add(socket);
+    socket.once('close', () => openSockets.delete(socket));
+  });
+
+  function shutdown() {
+    // Immediately destroy all open connections so server.close() can fire
+    for (const socket of openSockets) socket.destroy();
+    openSockets.clear();
+
+    server.close(() => process.exit(0));
+
+    // Hard exit after 2 s as a safety net
+    setTimeout(() => process.exit(0), 2000).unref();
+  }
+
   server.listen(port, '127.0.0.1', async () => {
-    // Write PID file so mm start / mm stop can manage us
     await fs.writeJson(PID_FILE, { pid: process.pid, port }, { spaces: 2 });
   });
 
@@ -281,14 +300,15 @@ async function router(req, res) {
     process.exit(1);
   });
 
-  // Clean up on SIGTERM (sent by mm stop)
+  // SIGTERM — sent by mm stop / launchctl stop
   process.on('SIGTERM', async () => {
     await fs.remove(PID_FILE).catch(() => {});
-    server.close(() => process.exit(0));
+    shutdown();
   });
 
+  // SIGINT — Ctrl-C in terminal
   process.on('SIGINT', async () => {
     await fs.remove(PID_FILE).catch(() => {});
-    process.exit(0);
+    shutdown();
   });
 })();
