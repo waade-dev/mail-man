@@ -4,14 +4,13 @@
  * src/controllers/RemoveController.js
  *
  * mm remove <collection/request>  — Delete a request.
- * mm remove <collection>          — Delete entire collection (with confirm).
+ * mm remove <collection>          — Delete entire collection.
+ * Confirmation prompt is local; delete goes through server.
  */
 
-const inquirer   = require('inquirer');
-const chalk      = require('chalk');
-const path       = require('path');
-const fs         = require('fs-extra');
-const Collection = require('../models/Collection');
+const inquirer  = require('inquirer');
+const chalk     = require('chalk');
+const api       = require('../utils/apiClient');
 const { parsePath } = require('../utils/pathHelper');
 const { success, error, info } = require('../views/console');
 
@@ -23,7 +22,8 @@ async function remove(pathStr) {
     process.exit(1);
   }
 
-  const cols = await Collection.getAll();
+  const colsRes = await api.get('/api/collections');
+  const cols    = colsRes.body;
 
   // ── Remove a single request ─────────────────────────────────
   if (request) {
@@ -31,8 +31,11 @@ async function remove(pathStr) {
       error(`Collection "${collection}" not found.`);
       process.exit(1);
     }
-    const req = await Collection.getRequest(collection, request);
-    if (!req) {
+
+    const reqRes = await api.get(
+      `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`
+    );
+    if (reqRes.status === 404) {
       error(`Request "${request}" not found in "${collection}".`);
       process.exit(1);
     }
@@ -45,13 +48,9 @@ async function remove(pathStr) {
     }]);
     if (!confirm) { info('Aborted.'); return; }
 
-    await Collection.deleteRequest(collection, request);
-
-    // Also remove .last.json and .history.jsonl if present
-    const base = path.join(Collection.COLLECTIONS_DIR, collection);
-    await fs.remove(path.join(base, `${request}.last.json`)).catch(() => {});
-    await fs.remove(path.join(base, `${request}.history.jsonl`)).catch(() => {});
-
+    await api.del(
+      `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`
+    );
     success(`Removed ${chalk.bold(collection + '/' + request)}`);
     return;
   }
@@ -62,8 +61,9 @@ async function remove(pathStr) {
     process.exit(1);
   }
 
-  const reqs  = await Collection.getRequests(collection);
-  const label = reqs.length === 1 ? '1 request' : `${reqs.length} requests`;
+  const reqsRes = await api.get(`/api/collections/${encodeURIComponent(collection)}`);
+  const reqs    = reqsRes.body || [];
+  const label   = reqs.length === 1 ? '1 request' : `${reqs.length} requests`;
 
   const { confirm } = await inquirer.prompt([{
     type:    'confirm',
@@ -73,7 +73,7 @@ async function remove(pathStr) {
   }]);
   if (!confirm) { info('Aborted.'); return; }
 
-  await Collection.deleteCollection(collection);
+  await api.del(`/api/collections/${encodeURIComponent(collection)}`);
   success(`Removed collection ${chalk.bold(collection)}.`);
 }
 

@@ -3,27 +3,30 @@
 /**
  * src/controllers/ServerController.js
  *
- * mm start  — start the dashboard server
+ * mm start  — start the dashboard server (fixed port 2525)
  * mm stop   — stop  the dashboard server
  * mm status — show whether it is running
  *
- * On macOS, if the LaunchAgent plist has been installed by install.sh,
- * all three commands delegate to launchctl (like Tomcat via systemd/launchd).
- * Otherwise they fall back to a plain detached-child-process approach.
+ * The server binds to a FIXED port (default 2525, override with MM_PORT).
+ * All CLI commands are thin HTTP clients to this server — one PID, one port.
+ * On macOS with install.sh, delegates to launchctl; falls back to direct spawn.
  */
 
 const { spawn, execSync } = require('child_process');
-const path  = require('path');
-const os    = require('os');
-const fs    = require('fs-extra');
-const open  = require('open');
-const chalk = require('chalk');
+const http   = require('http');
+const path   = require('path');
+const os     = require('os');
+const fs     = require('fs-extra');
+const open   = require('open');
+const chalk  = require('chalk');
 const { DATA_DIR } = require('../models/db');
 const { info, success, error, warn } = require('../views/console');
 
 const SERVER_SCRIPT = path.join(__dirname, '../server/index.js');
 const PID_FILE      = path.join(DATA_DIR, '.mm-server.pid');
 const LOG_DIR       = path.join(DATA_DIR, 'logs');
+const PORT          = parseInt(process.env.MM_PORT || '2525', 10);
+const BASE_URL      = `http://127.0.0.1:${PORT}`;
 
 // ── launchd (macOS) ──────────────────────────────────────────
 const LABEL      = 'com.mailman.server';
@@ -43,10 +46,34 @@ function launchctl(...args) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Shared: poll until PID file appears  (works for both paths)
+//  Health ping — detect if server is up on the fixed port
 // ─────────────────────────────────────────────────────────────
 
-async function waitForPid(timeoutMs = 8000) {
+function pingServer(timeoutMs = 500) {
+  return new Promise((resolve) => {
+    const req = http.get(`${BASE_URL}/api/health`, { timeout: timeoutMs }, res => {
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+async function isRunning() {
+  const r = await pingServer();
+  return r && r.ok === true;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Poll until server responds on the fixed port
+// ─────────────────────────────────────────────────────────────
+
+async function waitForServer(timeoutMs = 8000) {
   const POLL = 150;
   let elapsed = 0;
   process.stdout.write(chalk.cyan('  Starting'));
@@ -54,14 +81,10 @@ async function waitForPid(timeoutMs = 8000) {
     await new Promise(r => setTimeout(r, POLL));
     elapsed += POLL;
     process.stdout.write(chalk.cyan('.'));
-    if (await fs.pathExists(PID_FILE)) {
-      try {
-        const data = await fs.readJson(PID_FILE);
-        if (data && data.pid && data.port) {
-          process.stdout.write('\n');
-          return data;
-        }
-      } catch { /* still writing */ }
+    const r = await pingServer(400);
+    if (r && r.ok) {
+      process.stdout.write('\n');
+      return r;
     }
   }
   process.stdout.write('\n');
@@ -69,15 +92,15 @@ async function waitForPid(timeoutMs = 8000) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Shared: open Chrome (or default browser) to the dashboard
+//  Open Chrome (or default browser) to the dashboard
 // ─────────────────────────────────────────────────────────────
 
-async function openBrowser(url) {
+async function openBrowser(targetUrl) {
   try {
-    await open(url, { app: { name: open.apps.chrome } });
+    await open(targetUrl, { app: { name: open.apps.chrome } });
   } catch {
     warn('Could not open Chrome. Trying default browser…');
-    try { await open(url); } catch { warn(`Visit manually: ${url}`); }
+    try { await open(targetUrl); } catch { warn(`Visit manually: ${targetUrl}`); }
   }
 }
 
@@ -86,22 +109,12 @@ async function openBrowser(url) {
 // ─────────────────────────────────────────────────────────────
 
 async function startServer() {
-  // ── Already running? ────────────────────────────────────
-  if (await fs.pathExists(PID_FILE)) {
-    let pidData;
-    try { pidData = await fs.readJson(PID_FILE); } catch { /* stale */ }
-    if (pidData) {
-      try {
-        process.kill(pidData.pid, 0);           // 0 = existence check
-        const url = `http://127.0.0.1:${pidData.port}`;
-        info(`mail-man is already running  →  ${chalk.cyan.underline(url)}`);
-        info(`PID ${pidData.pid}  |  use ${chalk.bold('mm stop')} to shut it down`);
-        await openBrowser(url);
-        return;
-      } catch {
-        await fs.remove(PID_FILE);              // stale — clean up
-      }
-    }
+  // ── Already running? (health ping is the source of truth) ───
+  if (await isRunning()) {
+    info(`mail-man is already running  →  ${chalk.cyan.underline(BASE_URL)}`);
+    info(`Use ${chalk.bold('mm stop')} to shut it down`);
+    await openBrowser(BASE_URL);
+    return;
   }
 
   await fs.ensureDir(LOG_DIR);
@@ -116,18 +129,17 @@ async function startServer() {
       return;
     }
 
-    const pidData = await waitForPid();
-    if (!pidData) {
-      error('Server did not start within 8 seconds.');
+    const serverInfo = await waitForServer();
+    if (!serverInfo) {
+      error('Server did not respond within 8 seconds.');
       error(`Check logs: ${path.join(LOG_DIR, 'server.log')}`);
       process.exit(1);
     }
 
-    const url = `http://127.0.0.1:${pidData.port}`;
-    success(`mail-man started  →  ${chalk.cyan.underline(url)}`);
-    info(`PID ${pidData.pid}  |  service: ${chalk.bold(LABEL)}`);
+    success(`mail-man started  →  ${chalk.cyan.underline(BASE_URL)}`);
+    info(`PID ${serverInfo.pid}  |  port ${PORT}  |  service: ${chalk.bold(LABEL)}`);
     info(`Logs  →  ${chalk.dim(LOG_DIR + '/')}`);
-    await openBrowser(url);
+    await openBrowser(BASE_URL);
     return;
   }
 
@@ -143,16 +155,15 @@ async function spawnDirect() {
   });
   child.unref();
 
-  const pidData = await waitForPid();
-  if (!pidData) {
-    error('Server did not start within 8 seconds. Set DEBUG=1 and try again.');
+  const serverInfo = await waitForServer();
+  if (!serverInfo) {
+    error('Server did not respond within 8 seconds. Set DEBUG=1 and try again.');
     process.exit(1);
   }
 
-  const url = `http://127.0.0.1:${pidData.port}`;
-  success(`mail-man dashboard running  →  ${chalk.cyan.underline(url)}`);
-  info(`PID ${pidData.pid}  |  use ${chalk.bold('mm stop')} to shut it down`);
-  await openBrowser(url);
+  success(`mail-man dashboard running  →  ${chalk.cyan.underline(BASE_URL)}`);
+  info(`PID ${serverInfo.pid}  |  port ${PORT}  |  use ${chalk.bold('mm stop')} to shut it down`);
+  await openBrowser(BASE_URL);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -160,28 +171,23 @@ async function spawnDirect() {
 // ─────────────────────────────────────────────────────────────
 
 async function killPid(pid) {
-  // First check it even exists
   try { process.kill(pid, 0); } catch { return 'gone'; }
 
-  // Try SIGTERM
   try { process.kill(pid, 'SIGTERM'); } catch (e) {
     if (e.code === 'ESRCH') return 'gone';
     throw e;
   }
 
-  // Poll for up to 4 s
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 200));
     try { process.kill(pid, 0); } catch { return 'killed'; }
   }
 
-  // Still alive — escalate to SIGKILL
   warn(`Process ${pid} ignored SIGTERM — sending SIGKILL…`);
   try { process.kill(pid, 'SIGKILL'); } catch (e) {
     if (e.code === 'ESRCH') return 'killed';
     throw e;
   }
-
   await new Promise(r => setTimeout(r, 500));
   try { process.kill(pid, 0); } catch { return 'killed'; }
   return 'unkillable';
@@ -195,11 +201,9 @@ async function stopServer() {
   // ── macOS launchctl path ─────────────────────────────────
   if (await isServiceInstalled()) {
     const result = launchctl('stop', LABEL);
-
     if (!result.ok && !result.message.includes('No such process')) {
       warn(`launchctl stop: ${result.message}`);
     }
-
     if (await fs.pathExists(PID_FILE)) await fs.remove(PID_FILE);
     success(`mail-man stopped  (service: ${LABEL})`);
     return;
@@ -245,40 +249,34 @@ async function stopServer() {
 // ─────────────────────────────────────────────────────────────
 
 async function statusServer() {
-  const pidExists = await fs.pathExists(PID_FILE);
+  const running = await isRunning();
 
-  if (!pidExists) {
-    info(`mail-man  ${chalk.red('●')}  not running`);
+  if (!running) {
+    info(`mail-man  ${chalk.red('●')}  not running  (port ${PORT})`);
     if (await isServiceInstalled()) {
       info(`LaunchAgent: ${LABEL}  (installed, not started)`);
     }
     return;
   }
 
-  let pidData;
-  try { pidData = await fs.readJson(PID_FILE); } catch {
-    warn('PID file is corrupted. Run mm start to restart.');
-    return;
-  }
-
+  // Read PID from file if available
+  let pid = '?';
   try {
-    process.kill(pidData.pid, 0);             // check process alive
-    const url = `http://127.0.0.1:${pidData.port}`;
-    console.log('');
-    success(`mail-man  ${chalk.green('●')}  running`);
-    console.log(`  ${chalk.dim('PID  ')}  ${chalk.white(pidData.pid)}`);
-    console.log(`  ${chalk.dim('URL  ')}  ${chalk.cyan.underline(url)}`);
+    const pidData = await fs.readJson(PID_FILE);
+    pid = pidData.pid;
+  } catch { /* PID file may not exist yet */ }
 
-    if (await isServiceInstalled()) {
-      console.log(`  ${chalk.dim('SVC  ')}  ${chalk.white(LABEL)}`);
-      console.log(`  ${chalk.dim('LOGS ')}  ${chalk.dim(LOG_DIR + '/')}`);
-    }
-    console.log('');
-  } catch {
-    warn(`PID ${pidData.pid} is no longer running (stale PID file).`);
-    await fs.remove(PID_FILE);
-    info('Cleaned up. Run mm start to restart.');
+  console.log('');
+  success(`mail-man  ${chalk.green('●')}  running`);
+  console.log(`  ${chalk.dim('PID  ')}  ${chalk.white(pid)}`);
+  console.log(`  ${chalk.dim('URL  ')}  ${chalk.cyan.underline(BASE_URL)}`);
+  console.log(`  ${chalk.dim('PORT ')}  ${chalk.white(PORT)}`);
+
+  if (await isServiceInstalled()) {
+    console.log(`  ${chalk.dim('SVC  ')}  ${chalk.white(LABEL)}`);
+    console.log(`  ${chalk.dim('LOGS ')}  ${chalk.dim(LOG_DIR + '/')}`);
   }
+  console.log('');
 }
 
 module.exports = { startServer, stopServer, statusServer };

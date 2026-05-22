@@ -4,18 +4,14 @@
  * src/controllers/HitController.js
  *
  * mm hit <collection/request> — Execute a saved HTTP request.
+ * Request execution happens server-side; the CLI renders the result.
  */
 
-const axios      = require('axios');
-const chalk      = require('chalk');
-const Collection = require('../models/Collection');
-const Environment = require('../models/Environment');
-const State      = require('../models/State');
-const History    = require('../models/History');
+const chalk        = require('chalk');
+const api          = require('../utils/apiClient');
 const ResponseView = require('../views/ResponseView');
 const { error, warn } = require('../views/console');
-const { resolveRequest } = require('../utils/interpolate');
-const { parsePath } = require('../utils/pathHelper');
+const { parsePath }   = require('../utils/pathHelper');
 
 // ─────────────────────────────────────────────────────────────
 //  Spinner
@@ -31,126 +27,6 @@ function createSpinner(msg) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Build axios config
-// ─────────────────────────────────────────────────────────────
-
-function buildAxiosConfig(req) {
-  const config = {
-    method:         req.method,
-    url:            req.url,
-    headers:        { ...(req.headers || {}) },
-    validateStatus: () => true,
-    responseType:   'json',
-  };
-  if (req.body !== null && req.body !== undefined) {
-    const ct = (config.headers['Content-Type'] || config.headers['content-type'] || '').toLowerCase();
-    config.data = req.body;
-    if (!ct && typeof req.body === 'object') config.headers['Content-Type'] = 'application/json';
-  }
-  const auth = req.auth || {};
-  if (auth.type === 'bearer' && auth.token) {
-    config.headers['Authorization'] = `Bearer ${auth.token}`;
-  } else if (auth.type === 'basic' && auth.username) {
-    const enc = Buffer.from(`${auth.username}:${auth.password || ''}`).toString('base64');
-    config.headers['Authorization'] = `Basic ${enc}`;
-  } else if (auth.type === 'apikey' && auth.header && auth.key) {
-    config.headers[auth.header] = auth.key;
-  }
-  return config;
-}
-
-// ─────────────────────────────────────────────────────────────
-//  Core executor
-// ─────────────────────────────────────────────────────────────
-
-async function executeRequest(collection, reqName) {
-  const req = await Collection.getRequest(collection, reqName);
-  if (!req) {
-    error(`Request not found: ${chalk.bold(collection + '/' + reqName)}`);
-    error(`  Add it first with: mm add ${collection}/${reqName}`);
-    process.exit(1);
-  }
-
-  // Load active env vars
-  const state = await State.get();
-  let envVars = {};
-  if (state.activeEnv) {
-    const env = await Environment.get(state.activeEnv);
-    if (env) {
-      envVars = env.variables || {};
-    } else {
-      warn(`Active environment "${state.activeEnv}" not found. Running without variables.`);
-    }
-  }
-
-  const resolved   = resolveRequest(req, envVars);
-  const unresolved = (resolved.url || '').match(/\{\{[^}]+\}\}/g);
-  if (unresolved) warn(`Unresolved variables in URL: ${unresolved.join(', ')}`);
-
-  const axiosConfig = buildAxiosConfig(resolved);
-
-  // Print what we're sending
-  console.log('');
-  console.log(
-    chalk.bold('  Sending  ') + ResponseView.colorMethod(resolved.method) + '  ' + chalk.white(resolved.url)
-  );
-  if (state.activeEnv) console.log(chalk.gray(`  env: ${state.activeEnv}`));
-  console.log('');
-
-  const spinner   = createSpinner('Waiting for response…');
-  const startTime = Date.now();
-  let response;
-  try {
-    response = await axios(axiosConfig);
-  } catch (e) {
-    spinner.stop();
-    error(`Network error: ${e.message}`);
-    process.exit(1);
-  }
-  spinner.stop();
-  const duration = Date.now() - startTime;
-
-  ResponseView.render(response, duration);
-
-  // ── Persist ──────────────────────────────────────────────────
-  const snapshot = {
-    timestamp:       new Date().toISOString(),
-    collection,
-    request:         reqName,
-    method:          req.method,
-    url:             resolved.url,
-    status:          response.status,
-    statusText:      response.statusText,
-    requestHeaders:  axiosConfig.headers,
-    requestBody:     req.body || null,
-    responseHeaders: response.headers,
-    body:            response.data,
-    duration,
-  };
-
-  // Global .state.json  (for mm beautify with no args)
-  await State.save({ ...state, lastResponse: snapshot });
-
-  // Per-request .last.json  (for mm beautify coll/file)
-  await State.saveLastResponse(collection, reqName, snapshot);
-
-  // Global history.jsonl (summary only)
-  await History.append({
-    timestamp:    snapshot.timestamp,
-    collection,
-    request:      reqName,
-    method:       req.method,
-    url:          resolved.url,
-    status:       response.status,
-    duration,
-    responseBody: JSON.stringify(response.data).slice(0, 4096),
-  });
-
-  // Per-request history (full, capped at 50)
-  await History.appendForRequest(collection, reqName, snapshot);
-}
-
-// ─────────────────────────────────────────────────────────────
 //  mm hit <collection/request>
 // ─────────────────────────────────────────────────────────────
 
@@ -163,14 +39,55 @@ async function hit(pathStr) {
     process.exit(1);
   }
 
-  const cols = await Collection.getAll();
-  if (!cols.includes(collection)) {
-    error(`Collection "${collection}" not found.`);
-    error(`  Available: ${cols.join(', ') || '(none)'}`);
+  // ── Fetch request definition for the "Sending" line ─────
+  const defRes = await api.get(
+    `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`
+  );
+
+  if (defRes.status === 404) {
+    error(`Request not found: ${chalk.bold(collection + '/' + request)}`);
+    error(`  Add it first with: mm add ${collection}/${request}`);
     process.exit(1);
   }
 
-  await executeRequest(collection, request);
+  const reqDef = defRes.body.request;
+
+  // ── Fetch active env for display ─────────────────────────
+  const stateRes = await api.get('/api/state');
+  const activeEnv = stateRes.body.activeEnv;
+
+  console.log('');
+  console.log(
+    chalk.bold('  Sending  ') +
+    ResponseView.colorMethod(reqDef.method) + '  ' +
+    chalk.white(reqDef.url)
+  );
+  if (activeEnv) console.log(chalk.gray(`  env: ${activeEnv}`));
+  console.log('');
+
+  // ── Fire via server ───────────────────────────────────────
+  const spinner = createSpinner('Waiting for response…');
+  const runRes  = await api.post(
+    `/api/run/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`
+  );
+  spinner.stop();
+
+  if (runRes.status !== 200) {
+    error(`Request failed: ${runRes.body.error || 'unknown error'}`);
+    process.exit(1);
+  }
+
+  const snap = runRes.body;
+
+  // Warn about unresolved variables in the URL
+  const unresolved = (snap.url || '').match(/\{\{[^}]+\}\}/g);
+  if (unresolved) warn(`Unresolved variables in URL: ${unresolved.join(', ')}`);
+
+  // ── Render using ResponseView (expects axios-like object) ─
+  ResponseView.render(
+    { status: snap.status, statusText: snap.statusText, headers: snap.headers, data: snap.body },
+    snap.duration
+  );
 }
 
 module.exports = { hit };

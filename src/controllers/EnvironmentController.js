@@ -3,18 +3,11 @@
 /**
  * src/controllers/EnvironmentController.js
  *
- * Environment management:
- *   mm env new <name>
- *   mm env ls
- *   mm env use <name>
- *   mm env set <name> <key> <value>
- *   mm env rm <name> [key]
- *   mm env show <name>
+ * Environment management — all operations go through the server.
  */
 
-const chalk       = require('chalk');
-const Environment = require('../models/Environment');
-const State       = require('../models/State');
+const chalk  = require('chalk');
+const api    = require('../utils/apiClient');
 const { success, error, info, warn, header } = require('../views/console');
 
 // ---------------------------------------------------------------------------
@@ -26,16 +19,9 @@ async function envNew(name) {
     error('Environment name must contain only letters, numbers, hyphens, or underscores.');
     process.exit(1);
   }
-  const existing = await Environment.get(name);
-  if (existing) {
-    warn(`Environment "${name}" already exists.`);
-    return;
-  }
-  await Environment.save({
-    name,
-    variables: {},
-    createdAt: new Date().toISOString(),
-  });
+  const res = await api.post('/api/environments', { name });
+  if (res.status === 409) { warn(`Environment "${name}" already exists.`); return; }
+  if (res.status !== 201) { error(res.body.error || 'Failed to create environment.'); process.exit(1); }
   success(`Environment "${name}" created.`);
 }
 
@@ -44,22 +30,26 @@ async function envNew(name) {
 // ---------------------------------------------------------------------------
 
 async function envList() {
-  const envs  = await Environment.getAll();
-  const state = await State.get();
+  const [stateRes, envsRes] = await Promise.all([
+    api.get('/api/state'),
+    api.get('/api/environments'),
+  ]);
 
-  if (envs.length === 0) {
+  const activeEnv = stateRes.body.activeEnv;
+  const envs      = envsRes.body;   // full env objects
+
+  if (!envs.length) {
     info('No environments. Create one with: mm env new <name>');
     return;
   }
 
   header('\n  Environments\n');
-  for (const name of envs) {
-    const isActive = name === state.activeEnv;
+  for (const env of envs) {
+    const isActive = env.name === activeEnv;
     const marker   = isActive ? chalk.green.bold(' ● active') : '';
-    const env      = await Environment.get(name);
     const varCount = Object.keys(env.variables || {}).length;
     console.log(
-      `  ${chalk.bold.white(name.padEnd(25))}${chalk.gray(`${varCount} var${varCount !== 1 ? 's' : ''}`)}${marker}`
+      `  ${chalk.bold.white(env.name.padEnd(25))}${chalk.gray(`${varCount} var${varCount !== 1 ? 's' : ''}`)}${marker}`
     );
   }
   console.log('');
@@ -70,13 +60,12 @@ async function envList() {
 // ---------------------------------------------------------------------------
 
 async function envUse(name) {
-  const env = await Environment.get(name);
-  if (!env) {
+  const check = await api.get(`/api/environments/${encodeURIComponent(name)}`);
+  if (check.status === 404) {
     error(`Environment "${name}" not found.`);
     process.exit(1);
   }
-  const state = await State.get();
-  await State.save({ ...state, activeEnv: name });
+  await api.post('/api/env/use', { name });
   success(`Active environment set to "${name}".`);
 }
 
@@ -85,14 +74,12 @@ async function envUse(name) {
 // ---------------------------------------------------------------------------
 
 async function envSet(name, key, value) {
-  let env = await Environment.get(name);
-  if (!env) {
+  const check = await api.get(`/api/environments/${encodeURIComponent(name)}`);
+  if (check.status === 404) {
     error(`Environment "${name}" not found.`);
     process.exit(1);
   }
-  env.variables = env.variables || {};
-  env.variables[key] = value;
-  await Environment.save(env);
+  await api.put(`/api/environments/${encodeURIComponent(name)}/vars`, { key, value });
   success(`Set ${chalk.cyan(key)} = ${chalk.green(value)} in "${name}".`);
 }
 
@@ -102,11 +89,12 @@ async function envSet(name, key, value) {
 
 async function envRm(name, key) {
   const inquirer = require('inquirer');
-  const env = await Environment.get(name);
-  if (!env) {
+  const check    = await api.get(`/api/environments/${encodeURIComponent(name)}`);
+  if (check.status === 404) {
     error(`Environment "${name}" not found.`);
     process.exit(1);
   }
+  const env = check.body;
 
   if (key) {
     if (!Object.prototype.hasOwnProperty.call(env.variables || {}, key)) {
@@ -114,31 +102,22 @@ async function envRm(name, key) {
       process.exit(1);
     }
     const { confirm } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'confirm',
-      message: `Delete key "${key}" from environment "${name}"?`,
-      default: false,
+      type: 'confirm', name: 'confirm',
+      message: `Delete key "${key}" from environment "${name}"?`, default: false,
     }]);
     if (!confirm) { info('Aborted.'); return; }
-    await Environment.remove(name, key);
+    await api.del(`/api/environments/${encodeURIComponent(name)}/vars/${encodeURIComponent(key)}`);
     success(`Key "${key}" removed from "${name}".`);
   } else {
     const { confirm } = await inquirer.prompt([{
-      type: 'confirm',
-      name: 'confirm',
-      message: `Delete entire environment "${name}"?`,
-      default: false,
+      type: 'confirm', name: 'confirm',
+      message: `Delete entire environment "${name}"?`, default: false,
     }]);
     if (!confirm) { info('Aborted.'); return; }
-
-    // If deleting the active env, clear it from state
-    const state = await State.get();
-    if (state.activeEnv === name) {
-      await State.save({ ...state, activeEnv: null });
+    const res = await api.del(`/api/environments/${encodeURIComponent(name)}`);
+    if (res.body.wasActive) {
       warn('Active environment unset because the environment was deleted.');
     }
-
-    await Environment.remove(name);
     success(`Environment "${name}" deleted.`);
   }
 }
@@ -148,14 +127,18 @@ async function envRm(name, key) {
 // ---------------------------------------------------------------------------
 
 async function envShow(name) {
-  const env = await Environment.get(name);
-  if (!env) {
+  const [envRes, stateRes] = await Promise.all([
+    api.get(`/api/environments/${encodeURIComponent(name)}`),
+    api.get('/api/state'),
+  ]);
+
+  if (envRes.status === 404) {
     error(`Environment "${name}" not found.`);
     process.exit(1);
   }
 
-  const state    = await State.get();
-  const isActive = state.activeEnv === name;
+  const env      = envRes.body;
+  const isActive = stateRes.body.activeEnv === name;
 
   header(`\n  ${name}${isActive ? chalk.green.bold('  ● active') : ''}\n`);
   const vars = env.variables || {};

@@ -4,11 +4,12 @@
  * src/controllers/RequestController.js
  *
  * mm add <collection/request> — Create or edit a request.
+ * Prompts run locally (interactive); save goes to server via HTTP.
  */
 
-const inquirer   = require('inquirer');
-const chalk      = require('chalk');
-const Collection = require('../models/Collection');
+const inquirer = require('inquirer');
+const chalk    = require('chalk');
+const api      = require('../utils/apiClient');
 const { parsePath } = require('../utils/pathHelper');
 const { success, error, info } = require('../views/console');
 
@@ -153,9 +154,14 @@ async function addRequest(pathStr) {
     process.exit(1);
   }
 
-  const cols     = await Collection.getAll();
-  const colIsNew = !cols.includes(collection);
-  const existing = colIsNew ? null : await Collection.getRequest(collection, request);
+  // Fetch state in parallel: collection list + existing request definition
+  const [colsRes, reqRes] = await Promise.all([
+    api.get('/api/collections'),
+    api.get(`/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`),
+  ]);
+
+  const colIsNew = !colsRes.body.includes(collection);
+  const existing = reqRes.status === 200 ? reqRes.body.request : null;
   const isEdit   = !!existing;
 
   if (colIsNew) {
@@ -176,11 +182,12 @@ async function addRequest(pathStr) {
     ...(isEdit ? { updatedAt: new Date().toISOString() } : {}),
   };
 
-  await Collection.save(collection, reqObj);
+  await api.post(
+    `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`,
+    reqObj
+  );
 
-  if (colIsNew) {
-    success(`Collection "${collection}" created.`);
-  }
+  if (colIsNew) success(`Collection "${collection}" created.`);
   success(`${isEdit ? 'Updated' : 'Saved'}: ${chalk.bold(collection + '/' + request)}`);
 }
 

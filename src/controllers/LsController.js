@@ -4,24 +4,32 @@
  * src/controllers/LsController.js
  *
  * mm ls — List all collections and their requests as a tree.
+ * Data comes from the running server via HTTP.
  */
 
-const Collection = require('../models/Collection');
-const TreeView   = require('../views/TreeView');
+const api      = require('../utils/apiClient');
+const TreeView = require('../views/TreeView');
+const { error } = require('../views/console');
 
 async function ls() {
-  const cols = await Collection.getAll();
+  let colsRes;
+  try {
+    colsRes = await api.get('/api/collections');
+  } catch (e) {
+    error(`Could not reach mail-man server: ${e.message}`);
+    process.exit(1);
+  }
+
+  const colNames = colsRes.body;
 
   const data = await Promise.all(
-    cols.map(async name => ({
-      name,
-      requests: await Promise.all(
-        (await Collection.getRequests(name)).map(async rname => {
-          const r = await Collection.getRequest(name, rname);
-          return { name: rname, method: r ? r.method : '?', description: r ? r.description : '' };
-        })
-      ),
-    }))
+    colNames.map(async name => {
+      const { body: reqs } = await api.get(`/api/collections/${encodeURIComponent(name)}`);
+      return {
+        name,
+        requests: Array.isArray(reqs) ? reqs : [],
+      };
+    })
   );
 
   TreeView.render(data);

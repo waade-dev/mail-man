@@ -8,9 +8,7 @@
 
 const { Command } = require('commander');
 const chalk       = require('chalk');
-const path        = require('path');
-const fs          = require('fs-extra');
-const { ensureDirs, DATA_DIR } = require('../src/models/db');
+const { ensureDirs } = require('../src/models/db');
 
 const program = new Command();
 
@@ -248,10 +246,10 @@ program
 // ─────────────────────────────────────────────────────────────
 //  Server-running gate
 //  All commands except start / stop / status require the
-//  dashboard server to be up (PID file present + process alive).
+//  server to be reachable on its fixed port (default 2525).
+//  We ping /api/health — no PID file needed.
 // ─────────────────────────────────────────────────────────────
 
-const PID_FILE   = path.join(DATA_DIR, '.mm-server.pid');
 const EXEMPT_CMDS = new Set(['start', 'stop', 'status']);
 
 program.hook('preAction', async (_thisCmd, actionCmd) => {
@@ -262,19 +260,16 @@ program.hook('preAction', async (_thisCmd, actionCmd) => {
 
   if (EXEMPT_CMDS.has(rootName)) return;
 
-  const pidExists = await fs.pathExists(PID_FILE);
-  if (!pidExists) {
-    console.error(chalk.red('✗  mail-man is not running.'));
-    console.error('   Start it with: ' + chalk.cyan('mm start'));
-    process.exit(1);
-  }
-
+  // Ping the server — if it doesn't respond, it's not running
   try {
-    const pidData = await fs.readJson(PID_FILE);
-    process.kill(pidData.pid, 0);          // throws ESRCH if gone
+    const api = require('./src/utils/apiClient');
+    const { status } = await api.get('/api/health');
+    if (status !== 200) throw new Error('unhealthy');
   } catch {
-    console.error(chalk.red('✗  mail-man server is not responding (stale PID).'));
-    console.error('   Run ' + chalk.cyan('mm stop') + ' then ' + chalk.cyan('mm start') + ' to restart.');
+    const PORT = parseInt(process.env.MM_PORT || '2525', 10);
+    console.error(chalk.red('✗  mail-man is not running.'));
+    console.error(`   Port ${PORT} is not responding.`);
+    console.error('   Start it with: ' + chalk.cyan('mm start'));
     process.exit(1);
   }
 });
