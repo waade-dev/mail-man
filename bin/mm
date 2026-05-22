@@ -8,7 +8,9 @@
 
 const { Command } = require('commander');
 const chalk       = require('chalk');
-const { ensureDirs } = require('../src/models/db');
+const path        = require('path');
+const fs          = require('fs-extra');
+const { ensureDirs, DATA_DIR } = require('../src/models/db');
 
 const program = new Command();
 
@@ -242,6 +244,40 @@ program
     const { importCollection } = require('../src/controllers/ImportController');
     await importCollection(file);
   });
+
+// ─────────────────────────────────────────────────────────────
+//  Server-running gate
+//  All commands except start / stop / status require the
+//  dashboard server to be up (PID file present + process alive).
+// ─────────────────────────────────────────────────────────────
+
+const PID_FILE   = path.join(DATA_DIR, '.mm-server.pid');
+const EXEMPT_CMDS = new Set(['start', 'stop', 'status']);
+
+program.hook('preAction', async (_thisCmd, actionCmd) => {
+  // Walk up to the root command name (handles `env ls`, `auth bearer`, etc.)
+  let cmd = actionCmd;
+  while (cmd.parent && cmd.parent !== program) cmd = cmd.parent;
+  const rootName = cmd.name();
+
+  if (EXEMPT_CMDS.has(rootName)) return;
+
+  const pidExists = await fs.pathExists(PID_FILE);
+  if (!pidExists) {
+    console.error(chalk.red('✗  mail-man is not running.'));
+    console.error('   Start it with: ' + chalk.cyan('mm start'));
+    process.exit(1);
+  }
+
+  try {
+    const pidData = await fs.readJson(PID_FILE);
+    process.kill(pidData.pid, 0);          // throws ESRCH if gone
+  } catch {
+    console.error(chalk.red('✗  mail-man server is not responding (stale PID).'));
+    console.error('   Run ' + chalk.cyan('mm stop') + ' then ' + chalk.cyan('mm start') + ' to restart.');
+    process.exit(1);
+  }
+});
 
 // ─────────────────────────────────────────────────────────────
 //  Boot
