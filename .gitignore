@@ -1,0 +1,26 @@
+node_modules/
+
+# Per-request response snapshots and history (user data)
+data/collections/**/*.last.json
+data/collections/**/*.history.jsonl
+
+# Active server PID
+data/.mm-server.pid
+
+# Keep the data folder structure but ignore secrets
+data/environments/
+data/.state.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

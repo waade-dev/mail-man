@@ -1,0 +1,13 @@
+{
+  "name": "Refresh_Token",
+  "method": "POST",
+  "url": "{{BASE_URL}}/auth/refresh",
+  "headers": {},
+  "body": null,
+  "auth": {
+    "type": "bearer",
+    "token": "{{TOKEN}}"
+  },
+  "description": "",
+  "createdAt": "2026-05-22T00:09:40.264Z"
+}

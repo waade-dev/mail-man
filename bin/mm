@@ -1,0 +1,230 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * mail-man  —  Lightweight Postman alternative
+ * CLI entry point.
+ */
+
+const { Command } = require('commander');
+const chalk       = require('chalk');
+const { ensureDirs } = require('../src/models/db');
+
+const program = new Command();
+
+program
+  .name('mm')
+  .description(chalk.bold.blue('✉  mail-man') + ' — Lightweight Postman alternative')
+  .version('1.0.0', '-v, --version', 'Print version')
+  .helpOption('-h, --help', 'Show help');
+
+// ─────────────────────────────────────────────────────────────
+//  mm ls
+//  List every collection + its requests as a tree
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('ls')
+  .description('List all collections and requests as a tree')
+  .addHelpText('after', '\nExample:\n  mm ls')
+  .action(async () => {
+    const { ls } = require('../src/controllers/LsController');
+    await ls();
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm hit <collection/request>
+//  Execute a saved request
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('hit <path>')
+  .description('Execute a request  (format: collection/request)')
+  .addHelpText('after', '\nExamples:\n  mm hit my-api/get-users\n  mm hit payments/charge')
+  .action(async (pathArg) => {
+    const { hit } = require('../src/controllers/HitController');
+    await hit(pathArg);
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm add <collection/request>
+//  Create or edit a request (creates collection if needed)
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('add <path>')
+  .description('Add or edit a request  (format: collection/request)')
+  .addHelpText('after', [
+    '',
+    'Creates the collection if it does not exist.',
+    'If the request already exists, opens it for editing.',
+    '',
+    'Examples:',
+    '  mm add my-api/get-users',
+    '  mm add payments/charge',
+  ].join('\n'))
+  .action(async (pathArg) => {
+    const { addRequest } = require('../src/controllers/RequestController');
+    await addRequest(pathArg);
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm remove <collection/request>  |  mm remove <collection>
+//  Delete a request or an entire collection
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('remove <path>')
+  .description('Remove a request or an entire collection  (format: collection[/request])')
+  .addHelpText('after', [
+    '',
+    'Examples:',
+    '  mm remove my-api/get-users   # remove one request',
+    '  mm remove my-api             # remove entire collection',
+  ].join('\n'))
+  .action(async (pathArg) => {
+    const { remove } = require('../src/controllers/RemoveController');
+    await remove(pathArg);
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm beautify [collection/request]
+//  Open last response in Chrome viewer
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('beautify [path]')
+  .alias('b')
+  .description('Open last response in a Chrome viewer  (format: collection/request)')
+  .addHelpText('after', [
+    '',
+    'Examples:',
+    '  mm beautify                    # last response (any request)',
+    '  mm beautify my-api/get-users   # last response for this specific request',
+    '  mm beautify /tmp/resp.json     # any JSON file',
+  ].join('\n'))
+  .action(async (pathArg) => {
+    const { beautify } = require('../src/controllers/BeautifyController');
+    await beautify(pathArg);
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm history [collection/request]
+//  Show global or per-request history
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('history [path]')
+  .description('Show request history (global last-50, or per request)')
+  .addHelpText('after', [
+    '',
+    'Examples:',
+    '  mm history                     # global last 50 (summary table)',
+    '  mm history my-api/get-users    # full history for one request (50 entries)',
+    '  mm history clear               # clear global history',
+  ].join('\n'))
+  .action(async (pathArg) => {
+    if (pathArg === 'clear') {
+      const { clearHistory } = require('../src/controllers/HistoryController');
+      await clearHistory();
+    } else {
+      const { historyCommand } = require('../src/controllers/HistoryController');
+      await historyCommand(pathArg);
+    }
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm start  /  mm stop   (dashboard server)
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('start')
+  .description('Start the visual dashboard server and open it in Chrome')
+  .action(async () => {
+    const { startServer } = require('../src/controllers/ServerController');
+    await startServer();
+  });
+
+program
+  .command('stop')
+  .description('Stop the running dashboard server')
+  .action(async () => {
+    const { stopServer } = require('../src/controllers/ServerController');
+    await stopServer();
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm env  (sub-commands)
+// ─────────────────────────────────────────────────────────────
+
+const envCmd = program
+  .command('env')
+  .description('Manage environments and variables  ({{VAR}} substitution)');
+
+envCmd.command('new <name>').description('Create a new environment')
+  .action(async (name) => { const { envNew } = require('../src/controllers/EnvironmentController'); await envNew(name); });
+
+envCmd.command('ls').description('List environments (active one is marked)')
+  .action(async () => { const { envList } = require('../src/controllers/EnvironmentController'); await envList(); });
+
+envCmd.command('use <name>').description('Set the active environment')
+  .action(async (name) => { const { envUse } = require('../src/controllers/EnvironmentController'); await envUse(name); });
+
+envCmd.command('set <name> <key> <value>').description('Set a variable in an environment')
+  .action(async (name, key, value) => { const { envSet } = require('../src/controllers/EnvironmentController'); await envSet(name, key, value); });
+
+envCmd.command('rm <name> [key]').description('Remove an environment or a single key')
+  .action(async (name, key) => { const { envRm } = require('../src/controllers/EnvironmentController'); await envRm(name, key); });
+
+envCmd.command('show <name>').description('Print all variables in an environment')
+  .action(async (name) => { const { envShow } = require('../src/controllers/EnvironmentController'); await envShow(name); });
+
+// ─────────────────────────────────────────────────────────────
+//  mm auth  (sub-commands)
+// ─────────────────────────────────────────────────────────────
+
+const authCmd = program
+  .command('auth')
+  .description('Auth shortcuts — write to the active environment');
+
+authCmd.command('bearer <token>').description('Set Bearer token  →  TOKEN variable')
+  .action(async (token) => { const { setBearer } = require('../src/controllers/AuthController'); await setBearer(token); });
+
+authCmd.command('basic <user> <pass>').description('Set Basic auth  →  AUTH_BASIC variable (base64)')
+  .action(async (user, pass) => { const { setBasic } = require('../src/controllers/AuthController'); await setBasic(user, pass); });
+
+authCmd.command('apikey <header> <key>').description('Set API key  →  stored in active env')
+  .action(async (header, key) => { const { setApiKey } = require('../src/controllers/AuthController'); await setApiKey(header, key); });
+
+// ─────────────────────────────────────────────────────────────
+//  mm import <file>
+//  Import a Postman collection into mm
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('import <file>')
+  .description('Import a Postman collection (.json) into mm')
+  .addHelpText('after', [
+    '',
+    'Examples:',
+    '  mm import MyAPI.postman_collection.json',
+  ].join('\n'))
+  .action(async (file) => {
+    const { importCollection } = require('../src/controllers/ImportController');
+    await importCollection(file);
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  Boot
+// ─────────────────────────────────────────────────────────────
+
+(async () => {
+  try {
+    await ensureDirs();
+    await program.parseAsync(process.argv);
+  } catch (err) {
+    console.error(chalk.red('✗ ') + err.message);
+    if (process.env.DEBUG) console.error(err.stack);
+    process.exit(1);
+  }
+})();

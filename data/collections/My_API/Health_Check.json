@@ -1,0 +1,12 @@
+{
+  "name": "Health_Check",
+  "method": "GET",
+  "url": "{{BASE_URL}}/health",
+  "headers": {},
+  "body": null,
+  "auth": {
+    "type": "none"
+  },
+  "description": "",
+  "createdAt": "2026-05-22T00:09:40.265Z"
+}

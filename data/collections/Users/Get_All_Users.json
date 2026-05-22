@@ -1,0 +1,14 @@
+{
+  "name": "Get_All_Users",
+  "method": "GET",
+  "url": "{{BASE_URL}}/users",
+  "headers": {
+    "Authorization": "Bearer {{TOKEN}}"
+  },
+  "body": null,
+  "auth": {
+    "type": "none"
+  },
+  "description": "",
+  "createdAt": "2026-05-22T00:09:40.264Z"
+}

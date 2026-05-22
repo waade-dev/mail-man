@@ -1,0 +1,10 @@
+{
+  "name": "get-json",
+  "method": "GET",
+  "url": "{{BASE_URL}}/json",
+  "headers": { "Accept": "application/json" },
+  "body": null,
+  "auth": { "type": "none" },
+  "description": "Fetch sample JSON from httpbin",
+  "createdAt": "2026-05-22T00:00:00.000Z"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Login",
+  "method": "POST",
+  "url": "{{BASE_URL}}/auth/login",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "email": "user@example.com",
+    "password": "secret"
+  },
+  "auth": {
+    "type": "none"
+  },
+  "description": "",
+  "createdAt": "2026-05-22T00:09:40.263Z"
+}
