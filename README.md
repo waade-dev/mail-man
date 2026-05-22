@@ -43,8 +43,11 @@ mm ls
 # 4. Fire it
 mm hit my-api/get-users
 
-# 5. View the response in Chrome
-mm beautify my-api/get-users
+# 5. View the request in Chrome
+mm b-req my-api/get-users
+
+# 6. View the response in Chrome
+mm b-res my-api/get-users
 
 # 6. Open the visual dashboard
 mm start
@@ -119,13 +122,30 @@ mm remove my-api             # remove entire collection + all its requests
 
 ---
 
-### `mm beautify [col/req]`
-Open the last response in a Chrome tab — VS Code dark theme, collapsible JSON tree, copy button.
+### `mm b-req <col/req>`
+Open the **request definition** in Chrome — VS Code dark theme.
 
 ```bash
-mm beautify                      # last response from any request
-mm beautify my-api/get-users     # last response for this specific request
-mm beautify /tmp/output.json     # any JSON file on disk
+mm b-req my-api/get-users
+```
+
+What you see:
+- Method badge + collection/request path
+- **URL** — raw `{{BASE_URL}}/users` and resolved `https://api.yourapp.com/users` side by side when an env is active
+- **Headers** — key/value table
+- **Auth** — type, token/credentials
+- **Body** — collapsible syntax-highlighted JSON tree
+- **cURL** — full ready-to-paste curl command with variables resolved + **Copy as cURL** button
+
+---
+
+### `mm b-res [col/req]`
+Open the last **response** in Chrome — VS Code dark theme, collapsible JSON tree, copy button.
+
+```bash
+mm b-res                         # last response from any request
+mm b-res my-api/get-users        # last response for this specific request
+mm b-res /tmp/output.json        # any JSON file on disk
 ```
 
 The viewer spins up a local HTTP server and auto-closes it after 5 minutes.
@@ -245,7 +265,7 @@ data/
 ├── collections/
 │   └── my-api/
 │       ├── get-users.json           ← request definition
-│       ├── get-users.last.json      ← last response snapshot (mm beautify)
+│       ├── get-users.last.json      ← last response snapshot (mm b-res)
 │       ├── get-users.history.jsonl  ← per-request history (50 entries, newest first)
 │       └── create-user.json
 ├── environments/
