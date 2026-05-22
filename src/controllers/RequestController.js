@@ -182,10 +182,15 @@ async function addRequest(pathStr) {
     ...(isEdit ? { updatedAt: new Date().toISOString() } : {}),
   };
 
-  await api.post(
+  const saveRes = await api.post(
     `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`,
     reqObj
   );
+
+  if (saveRes.status !== 200) {
+    error(`Failed to save: ${saveRes.body && saveRes.body.error ? saveRes.body.error : 'unknown server error'}`);
+    process.exit(1);
+  }
 
   if (colIsNew) success(`Collection "${collection}" created.`);
   success(`${isEdit ? 'Updated' : 'Saved'}: ${chalk.bold(collection + '/' + request)}`);

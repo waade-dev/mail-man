@@ -123,6 +123,11 @@ body{font-family:'SF Mono','Fira Code',Consolas,'Courier New',monospace;
 #run-btn:hover{background:#0a5a8e}
 #run-btn:disabled{opacity:.5;cursor:not-allowed}
 #run-spinner{display:none;color:var(--dim);font-size:12px}
+#edit-btn{
+  background:var(--surface2);border:1px solid var(--border);color:var(--dim);
+  padding:7px 14px;border-radius:4px;font-size:13px;cursor:pointer;font-family:inherit;
+}
+#edit-btn:hover{border-color:var(--blue);color:var(--blue)}
 
 /* ── Response panel ─────────────────────── */
 #res-panel{overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:8px}
@@ -185,6 +190,71 @@ pre#res-body{font-size:12.5px;line-height:1.6;white-space:pre;tab-size:2}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ── Edit modal ─────────────────────────── */
+#edit-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
+  z-index:100;align-items:center;justify-content:center;
+}
+#edit-overlay.open{display:flex}
+#edit-dialog{
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  width:min(680px,92vw);max-height:85vh;display:flex;flex-direction:column;
+  box-shadow:0 16px 48px rgba(0,0,0,.6);
+}
+#edit-dialog-header{
+  padding:14px 18px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;flex:none;
+}
+#edit-dialog-header h2{font-size:14px;font-weight:600;color:var(--text)}
+#edit-close{background:none;border:none;color:var(--dim);font-size:18px;cursor:pointer;padding:2px 6px;line-height:1}
+#edit-close:hover{color:var(--text)}
+#edit-form{padding:16px 18px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px}
+.edit-label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.edit-row{display:flex;gap:8px;align-items:center}
+.edit-input{
+  width:100%;background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);padding:6px 10px;border-radius:4px;
+  font-family:inherit;font-size:12px;
+}
+.edit-input:focus{outline:none;border-color:var(--blue)}
+.edit-select{
+  background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  padding:6px 8px;border-radius:4px;font-family:inherit;font-size:12px;flex:none;
+}
+.edit-select:focus{outline:none;border-color:var(--blue)}
+.edit-textarea{
+  width:100%;background:var(--surface2);border:1px solid var(--border);
+  color:var(--orange);padding:8px 10px;border-radius:4px;
+  font-family:inherit;font-size:12px;resize:vertical;min-height:90px;
+}
+.edit-textarea:focus{outline:none;border-color:var(--blue)}
+#edit-hdrs-list{display:flex;flex-direction:column;gap:5px}
+.hdr-row{display:flex;gap:6px;align-items:center}
+.hdr-row .edit-input{flex:1}
+.hdr-del{background:none;border:none;color:var(--dim);font-size:14px;cursor:pointer;padding:0 4px;flex:none;line-height:1}
+.hdr-del:hover{color:var(--red)}
+#edit-add-hdr{
+  background:none;border:1px dashed var(--border);color:var(--dim);
+  padding:4px 10px;border-radius:3px;font-size:11px;cursor:pointer;
+  font-family:inherit;align-self:flex-start;margin-top:4px;
+}
+#edit-add-hdr:hover{border-color:var(--blue);color:var(--blue)}
+#edit-auth-fields{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+#edit-footer{
+  padding:12px 18px;border-top:1px solid var(--border);
+  display:flex;justify-content:flex-end;gap:8px;flex:none;
+}
+#edit-save-btn{
+  background:#094771;border:1px solid #005f9e;color:#fff;
+  padding:7px 20px;border-radius:4px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:600;
+}
+#edit-save-btn:hover{background:#0a5a8e}
+#edit-cancel-btn{
+  background:var(--border);border:1px solid #555;color:var(--text);
+  padding:7px 16px;border-radius:4px;font-size:13px;cursor:pointer;font-family:inherit;
+}
+#edit-cancel-btn:hover{background:#3e3e3e}
 </style>
 </head>
 <body>
@@ -239,6 +309,7 @@ pre#res-body{font-size:12.5px;line-height:1.6;white-space:pre;tab-size:2}
         </div>
         <div id="run-row">
           <button id="run-btn" onclick="runRequest()">▶ Run</button>
+          <button id="edit-btn" onclick="openEdit()">✎ Edit</button>
           <span id="run-spinner">Sending…</span>
         </div>
       </div>
@@ -271,6 +342,55 @@ pre#res-body{font-size:12.5px;line-height:1.6;white-space:pre;tab-size:2}
   </div>
 </div>
 
+<!-- ── Edit modal ── -->
+<div id="edit-overlay" onclick="if(event.target===this)closeEdit()">
+  <div id="edit-dialog">
+    <div id="edit-dialog-header">
+      <h2>Edit request</h2>
+      <button id="edit-close" onclick="closeEdit()">✕</button>
+    </div>
+    <div id="edit-form">
+      <div>
+        <div class="edit-label">Method &amp; URL</div>
+        <div class="edit-row">
+          <select id="edit-method" class="edit-select">
+            <option>GET</option><option>POST</option><option>PUT</option>
+            <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+          </select>
+          <input id="edit-url" class="edit-input" type="text" placeholder="https://…" />
+        </div>
+      </div>
+      <div>
+        <div class="edit-label">Description</div>
+        <input id="edit-desc" class="edit-input" type="text" placeholder="Optional description" />
+      </div>
+      <div>
+        <div class="edit-label">Headers</div>
+        <div id="edit-hdrs-list"></div>
+        <button id="edit-add-hdr" onclick="addHdrRow('','')">+ Add header</button>
+      </div>
+      <div>
+        <div class="edit-label">Body (JSON)</div>
+        <textarea id="edit-body" class="edit-textarea" placeholder='{"key":"value"}'></textarea>
+      </div>
+      <div>
+        <div class="edit-label">Auth</div>
+        <select id="edit-auth-type" class="edit-select" onchange="renderAuthFields()">
+          <option value="none">None</option>
+          <option value="bearer">Bearer token</option>
+          <option value="basic">Basic auth</option>
+          <option value="apikey">API key</option>
+        </select>
+        <div id="edit-auth-fields"></div>
+      </div>
+    </div>
+    <div id="edit-footer">
+      <button id="edit-cancel-btn" onclick="closeEdit()">Cancel</button>
+      <button id="edit-save-btn" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 'use strict';
 
@@ -282,10 +402,19 @@ let lastResponseBody = null;
 // ── API helpers ────────────────────────────────────────────
 
 async function api(method, endpoint, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch('http://127.0.0.1:' + PORT + endpoint, opts);
-  return r.json();
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal };
+    if (body != null) opts.body = JSON.stringify(body);
+    const r = await fetch('http://127.0.0.1:' + PORT + endpoint, opts);
+    return r.json();
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  } finally {
+    clearTimeout(tid);
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────
@@ -590,6 +719,145 @@ function statusBadgeClass(s) {
   if (s >= 400 && s < 500) return 'badge-4xx';
   if (s >= 500)             return 'badge-5xx';
   return 'badge-def';
+}
+
+// ── Edit modal ────────────────────────────────────────────
+
+async function openEdit() {
+  if (!selectedCol || !selectedReq) return;
+  // Capture at call-time; selectedCol/Req may shift during await
+  const col  = selectedCol;
+  const name = selectedReq;
+  const data = await api('GET', '/api/collections/' + col + '/' + name).catch(() => null);
+  if (!data || !data.request) return;
+  const req = data.request;
+
+  document.getElementById('edit-method').value = req.method || 'GET';
+  document.getElementById('edit-url').value    = req.url    || '';
+  document.getElementById('edit-desc').value   = req.description || '';
+
+  const hdrList = document.getElementById('edit-hdrs-list');
+  hdrList.innerHTML = '';
+  Object.entries(req.headers || {}).forEach(([k, v]) => addHdrRow(k, v));
+
+  const body = req.body;
+  document.getElementById('edit-body').value =
+    body ? (typeof body === 'object' ? JSON.stringify(body, null, 2) : body) : '';
+
+  const auth     = req.auth || {};
+  const authType = auth.type || 'none';
+  document.getElementById('edit-auth-type').value = authType;
+  renderAuthFields();
+  if (authType === 'bearer') {
+    const f = document.getElementById('edit-auth-token');
+    if (f) f.value = auth.token || '';
+  } else if (authType === 'basic') {
+    const u = document.getElementById('edit-auth-user');
+    const p = document.getElementById('edit-auth-pass');
+    if (u) u.value = auth.username || '';
+    if (p) p.value = auth.password || '';
+  } else if (authType === 'apikey') {
+    const h = document.getElementById('edit-auth-header');
+    const k = document.getElementById('edit-auth-key');
+    if (h) h.value = auth.header || '';
+    if (k) k.value = auth.key    || '';
+  }
+
+  document.getElementById('edit-overlay').classList.add('open');
+}
+
+function closeEdit() {
+  document.getElementById('edit-overlay').classList.remove('open');
+}
+
+function addHdrRow(k, v) {
+  const list = document.getElementById('edit-hdrs-list');
+  const row  = document.createElement('div');
+  row.className = 'hdr-row';
+  row.innerHTML =
+    '<input class="edit-input" placeholder="Header name" value="' + escHtml(k) + '" />' +
+    '<input class="edit-input" placeholder="Value"       value="' + escHtml(v) + '" />' +
+    '<button class="hdr-del" onclick="this.parentElement.remove()" title="Remove">✕</button>';
+  list.appendChild(row);
+}
+
+function renderAuthFields() {
+  const type = document.getElementById('edit-auth-type').value;
+  const box  = document.getElementById('edit-auth-fields');
+  if (type === 'bearer') {
+    box.innerHTML = '<input id="edit-auth-token" class="edit-input" placeholder="Bearer token" />';
+  } else if (type === 'basic') {
+    box.innerHTML =
+      '<input id="edit-auth-user" class="edit-input" placeholder="Username" />' +
+      '<input id="edit-auth-pass" class="edit-input" type="password" placeholder="Password" style="margin-top:6px" />';
+  } else if (type === 'apikey') {
+    box.innerHTML =
+      '<input id="edit-auth-header" class="edit-input" placeholder="Header name (e.g. X-API-Key)" />' +
+      '<input id="edit-auth-key"    class="edit-input" placeholder="Key value" style="margin-top:6px" />';
+  } else {
+    box.innerHTML = '';
+  }
+}
+
+async function saveEdit() {
+  if (!selectedCol || !selectedReq) return;
+
+  const method = document.getElementById('edit-method').value;
+  const url    = document.getElementById('edit-url').value.trim();
+  const desc   = document.getElementById('edit-desc').value.trim();
+
+  if (!url) { alert('URL is required.'); document.getElementById('edit-url').focus(); return; }
+
+  const headers = {};
+  document.querySelectorAll('#edit-hdrs-list .hdr-row').forEach(row => {
+    const ins = row.querySelectorAll('input');
+    const k = ins[0].value.trim();
+    const v = ins[1].value.trim();
+    if (k) headers[k] = v;
+  });
+
+  let body = null;
+  const rawBody = document.getElementById('edit-body').value.trim();
+  if (rawBody) {
+    try { body = JSON.parse(rawBody); } catch { body = rawBody; }
+  }
+
+  const authType = document.getElementById('edit-auth-type').value;
+  const auth = { type: authType };
+  if (authType === 'bearer') {
+    auth.token = (document.getElementById('edit-auth-token') || {}).value || '';
+  } else if (authType === 'basic') {
+    auth.username = (document.getElementById('edit-auth-user') || {}).value || '';
+    auth.password = (document.getElementById('edit-auth-pass') || {}).value || '';
+  } else if (authType === 'apikey') {
+    auth.header = (document.getElementById('edit-auth-header') || {}).value || '';
+    auth.key    = (document.getElementById('edit-auth-key')    || {}).value || '';
+  }
+
+  const btn = document.getElementById('edit-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  // Capture current selection — user cannot change it while modal is open,
+  // but be explicit about which request we're saving.
+  const col  = selectedCol;
+  const name = selectedReq;
+
+  try {
+    const res = await api('POST',
+      '/api/collections/' + col + '/' + name,
+      { method, url, description: desc, headers, body, auth }
+    );
+    if (!res || res.error) { alert('Save failed: ' + (res && res.error ? res.error : 'unknown error')); return; }
+  } catch (e) {
+    alert('Save error: ' + e.message); return;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+
+  closeEdit();
+  await selectRequest(col, name);
 }
 
 // ── Boot ─────────────────────────────────────────────────

@@ -48,9 +48,13 @@ async function remove(pathStr) {
     }]);
     if (!confirm) { info('Aborted.'); return; }
 
-    await api.del(
+    const delRes = await api.del(
       `/api/collections/${encodeURIComponent(collection)}/${encodeURIComponent(request)}`
     );
+    if (delRes.status !== 200) {
+      error(`Failed to remove: ${delRes.body && delRes.body.error ? delRes.body.error : 'unknown error'}`);
+      process.exit(1);
+    }
     success(`Removed ${chalk.bold(collection + '/' + request)}`);
     return;
   }
@@ -73,7 +77,11 @@ async function remove(pathStr) {
   }]);
   if (!confirm) { info('Aborted.'); return; }
 
-  await api.del(`/api/collections/${encodeURIComponent(collection)}`);
+  const colDelRes = await api.del(`/api/collections/${encodeURIComponent(collection)}`);
+  if (colDelRes.status !== 200) {
+    error(`Failed to remove: ${colDelRes.body && colDelRes.body.error ? colDelRes.body.error : 'unknown error'}`);
+    process.exit(1);
+  }
   success(`Removed collection ${chalk.bold(collection)}.`);
 }
 

@@ -48,11 +48,17 @@ function resolveRequest(request, envVariables = {}) {
 
   // Body: if it's a string interpolate directly; if it's an object
   // round-trip through JSON so nested string values get resolved.
+  // The try/catch guards against a substituted value producing invalid JSON
+  // (e.g. a variable value that contains unescaped quotes).
   if (resolved.body) {
     if (typeof resolved.body === 'string') {
       resolved.body = interpolate(resolved.body, vars);
     } else if (typeof resolved.body === 'object') {
-      resolved.body = JSON.parse(interpolate(JSON.stringify(resolved.body), vars));
+      try {
+        resolved.body = JSON.parse(interpolate(JSON.stringify(resolved.body), vars));
+      } catch {
+        // Interpolation broke JSON validity — keep original object untouched
+      }
     }
   }
 

@@ -281,13 +281,23 @@ function sendHtml(res, html) {
   res.end(html);
 }
 
+const MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
+
 async function parseBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', chunk => { data += chunk; });
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        req.destroy(new Error('Request body too large (max 10 MB)'));
+        return;
+      }
+      data += chunk;
+    });
     req.on('end', () => {
       try { resolve(data ? JSON.parse(data) : {}); }
-      catch (e) { reject(e); }
+      catch (e) { reject(new Error('Invalid JSON in request body')); }
     });
     req.on('error', reject);
   });

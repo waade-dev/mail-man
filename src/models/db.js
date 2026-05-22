@@ -15,7 +15,9 @@ const os   = require('os');
 // Path constants
 // ---------------------------------------------------------------------------
 
-const BASE_DIR        = path.join(os.homedir(), 'Developer', 'mail-man');
+const BASE_DIR        = process.env.MM_DATA
+  ? path.resolve(process.env.MM_DATA)
+  : path.join(os.homedir(), 'Developer', 'mail-man');
 const DATA_DIR        = path.join(BASE_DIR, 'data');
 const COLLECTIONS_DIR = path.join(DATA_DIR, 'collections');
 const ENVIRONMENTS_DIR = path.join(DATA_DIR, 'environments');

@@ -30,6 +30,11 @@ function esc(s) {
   return String(s === null || s === undefined ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+/** Escape a string for safe embedding inside a single-quoted shell argument. */
+function shellEsc(s) {
+  return String(s === null || s === undefined ? '' : s).replace(/'/g, "'\\''");
+}
 function embedJson(obj) {
   return JSON.stringify(obj, null, 2)
     .replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
@@ -49,9 +54,9 @@ function buildHtml({ req, resolved, envName, collection, request }) {
   const urlChanged = hasEnv && resolved.url !== req.url;
 
   const curlHeaders = Object.entries(resolved.headers || {})
-    .map(([k, v]) => `-H '${k}: ${v}'`).join(' \\\n     ');
-  const curlBody    = resolved.body ? `-d '${JSON.stringify(resolved.body)}' \\\n     ` : '';
-  const curlStr     = `curl -X ${method} \\\n     '${resolved.url}' \\\n     ${curlHeaders ? curlHeaders + ' \\\n     ' : ''}${curlBody}`.trimEnd();
+    .map(([k, v]) => `-H '${shellEsc(k)}: ${shellEsc(v)}'`).join(' \\\n     ');
+  const curlBody    = resolved.body ? `-d '${shellEsc(JSON.stringify(resolved.body))}' \\\n     ` : '';
+  const curlStr     = `curl -X ${method} \\\n     '${shellEsc(resolved.url)}' \\\n     ${curlHeaders ? curlHeaders + ' \\\n     ' : ''}${curlBody}`.trimEnd();
 
   const authRows = (() => {
     if (!hasAuth) return '';

@@ -50,11 +50,15 @@ async function hit(pathStr) {
     process.exit(1);
   }
 
-  const reqDef = defRes.body.request;
+  const reqDef = defRes.body && defRes.body.request;
+  if (!reqDef) {
+    error('Unexpected response from server — request definition missing.');
+    process.exit(1);
+  }
 
   // ── Fetch active env for display ─────────────────────────
-  const stateRes = await api.get('/api/state');
-  const activeEnv = stateRes.body.activeEnv;
+  const stateRes  = await api.get('/api/state');
+  const activeEnv = stateRes.body && stateRes.body.activeEnv;
 
   console.log('');
   console.log(
