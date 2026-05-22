@@ -156,6 +156,38 @@ async function spawnDirect() {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  Kill a PID cleanly: SIGTERM → wait up to 4s → SIGKILL
+// ─────────────────────────────────────────────────────────────
+
+async function killPid(pid) {
+  // First check it even exists
+  try { process.kill(pid, 0); } catch { return 'gone'; }
+
+  // Try SIGTERM
+  try { process.kill(pid, 'SIGTERM'); } catch (e) {
+    if (e.code === 'ESRCH') return 'gone';
+    throw e;
+  }
+
+  // Poll for up to 4 s
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    try { process.kill(pid, 0); } catch { return 'killed'; }
+  }
+
+  // Still alive — escalate to SIGKILL
+  warn(`Process ${pid} ignored SIGTERM — sending SIGKILL…`);
+  try { process.kill(pid, 'SIGKILL'); } catch (e) {
+    if (e.code === 'ESRCH') return 'killed';
+    throw e;
+  }
+
+  await new Promise(r => setTimeout(r, 500));
+  try { process.kill(pid, 0); } catch { return 'killed'; }
+  return 'unkillable';
+}
+
+// ─────────────────────────────────────────────────────────────
 //  mm stop
 // ─────────────────────────────────────────────────────────────
 
@@ -164,7 +196,6 @@ async function stopServer() {
   if (await isServiceInstalled()) {
     const result = launchctl('stop', LABEL);
 
-    // launchctl stop returns non-zero if not running — treat gracefully
     if (!result.ok && !result.message.includes('No such process')) {
       warn(`launchctl stop: ${result.message}`);
     }
@@ -189,18 +220,23 @@ async function stopServer() {
     return;
   }
 
-  try {
-    process.kill(pidData.pid, 'SIGTERM');
-    await fs.remove(PID_FILE);
-    success(`mail-man stopped  (PID ${pidData.pid})`);
-  } catch (e) {
-    if (e.code === 'ESRCH') {
+  process.stdout.write(chalk.cyan(`  Stopping PID ${pidData.pid}…`));
+
+  const outcome = await killPid(pidData.pid);
+  process.stdout.write('\n');
+
+  switch (outcome) {
+    case 'gone':
       await fs.remove(PID_FILE);
       info('Process was already gone. Cleaned up stale PID file.');
-    } else {
-      error(`Failed to stop: ${e.message}`);
+      break;
+    case 'killed':
+      await fs.remove(PID_FILE);
+      success(`mail-man stopped  (PID ${pidData.pid})`);
+      break;
+    case 'unkillable':
+      error(`Could not kill PID ${pidData.pid}. Try: kill -9 ${pidData.pid}`);
       process.exit(1);
-    }
   }
 }
 
