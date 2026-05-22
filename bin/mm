@@ -158,7 +158,8 @@ program
 
 program
   .command('start')
-  .description('Start the visual dashboard server and open it in Chrome')
+  .description('Start the dashboard server and open it in Chrome')
+  .addHelpText('after', '\n  Uses launchctl on macOS if install.sh has been run, otherwise direct spawn.')
   .action(async () => {
     const { startServer } = require('../src/controllers/ServerController');
     await startServer();
@@ -167,9 +168,18 @@ program
 program
   .command('stop')
   .description('Stop the running dashboard server')
+  .addHelpText('after', '\n  Uses launchctl on macOS if install.sh has been run.')
   .action(async () => {
     const { stopServer } = require('../src/controllers/ServerController');
     await stopServer();
+  });
+
+program
+  .command('status')
+  .description('Show whether the dashboard server is running')
+  .action(async () => {
+    const { statusServer } = require('../src/controllers/ServerController');
+    await statusServer();
   });
 
 // ─────────────────────────────────────────────────────────────

@@ -73,7 +73,76 @@ fi
 # ── Data directories ───────────────────────────────────────
 mkdir -p "$INSTALL_DIR/data/collections"
 mkdir -p "$INSTALL_DIR/data/environments"
+mkdir -p "$INSTALL_DIR/data/logs"
 echo -e "  ${GREEN}✓${RESET}  Data directories ready at $INSTALL_DIR/data/"
+
+# ── LaunchAgent (macOS service) ────────────────────────────
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  echo ""
+  echo -e "  ${CYAN}→${RESET}  Installing macOS LaunchAgent..."
+
+  LABEL="com.mailman.server"
+  PLIST_DIR="$HOME/Library/LaunchAgents"
+  PLIST_PATH="$PLIST_DIR/${LABEL}.plist"
+  NODE_BIN="$(which node)"
+  LOG_DIR="$INSTALL_DIR/data/logs"
+
+  mkdir -p "$PLIST_DIR"
+
+  # Unload any existing version first
+  launchctl unload "$PLIST_PATH" 2>/dev/null || true
+
+  # Generate the plist
+  cat > "$PLIST_PATH" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${LABEL}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>${NODE_BIN}</string>
+        <string>${INSTALL_DIR}/src/server/index.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>${INSTALL_DIR}</string>
+
+    <!-- Start manually with: mm start -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Do not auto-restart — explicit control via mm start / mm stop -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>${LOG_DIR}/server.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>${LOG_DIR}/server-error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
+PLIST_EOF
+
+  # Register (load) the service
+  if launchctl load "$PLIST_PATH" 2>/dev/null; then
+    echo -e "  ${GREEN}✓${RESET}  LaunchAgent registered: ${LABEL}"
+    echo -e "  ${GREEN}✓${RESET}  Logs  →  $LOG_DIR/"
+    echo -e "  ${DIM}     Plist →  $PLIST_PATH${RESET}"
+  else
+    echo -e "  ${YELLOW}⚠${RESET}  Could not register LaunchAgent (non-fatal)"
+    echo -e "     ${DIM}mm start/stop will fall back to direct process management${RESET}"
+  fi
+fi
 
 # ── Done ───────────────────────────────────────────────────
 echo ""
