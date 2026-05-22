@@ -88,20 +88,39 @@ program
   });
 
 // ─────────────────────────────────────────────────────────────
-//  mm beautify [collection/request]
-//  Open last response in Chrome viewer
+//  mm b-req <collection/request>
+//  Open the REQUEST definition in Chrome
 // ─────────────────────────────────────────────────────────────
 
 program
-  .command('beautify [path]')
-  .alias('b')
-  .description('Open last response in a Chrome viewer  (format: collection/request)')
+  .command('b-req <path>')
+  .description('Open the request definition in Chrome  (format: collection/request)')
+  .addHelpText('after', [
+    '',
+    'Shows method, URL (raw + resolved), headers, auth, body and a cURL snippet.',
+    '',
+    'Example:',
+    '  mm b-req my-api/get-users',
+  ].join('\n'))
+  .action(async (pathArg) => {
+    const { beautifyReq } = require('../src/controllers/BeautifyReqController');
+    await beautifyReq(pathArg);
+  });
+
+// ─────────────────────────────────────────────────────────────
+//  mm b-res [collection/request]
+//  Open the last RESPONSE in Chrome
+// ─────────────────────────────────────────────────────────────
+
+program
+  .command('b-res [path]')
+  .description('Open the last response in Chrome  (format: collection/request)')
   .addHelpText('after', [
     '',
     'Examples:',
-    '  mm beautify                    # last response (any request)',
-    '  mm beautify my-api/get-users   # last response for this specific request',
-    '  mm beautify /tmp/resp.json     # any JSON file',
+    '  mm b-res                    # last response (any request)',
+    '  mm b-res my-api/get-users   # last response for this specific request',
+    '  mm b-res /tmp/resp.json     # any JSON file',
   ].join('\n'))
   .action(async (pathArg) => {
     const { beautify } = require('../src/controllers/BeautifyController');
