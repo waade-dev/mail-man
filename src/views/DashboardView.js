@@ -210,12 +210,7 @@ pre#res-body{font-size:12.5px;line-height:1.6;white-space:pre;tab-size:2}
       Collections
       <span id="col-count" style="color:var(--dim2)"></span>
     </div>
-    <div id="sidebar-content">
-      <div id="empty-sidebar" style="display:none">
-        No collections yet.<br>
-        Run <code>mm add &lt;name&gt;/&lt;request&gt;</code> to create one.
-      </div>
-    </div>
+    <div id="sidebar-content"></div>
   </div>
 
   <!-- Main -->
@@ -325,17 +320,14 @@ async function switchEnv(name) {
 async function loadCollections() {
   const cols = await api('GET', '/api/collections').catch(() => []);
   const container = document.getElementById('sidebar-content');
-  const empty     = document.getElementById('empty-sidebar');
   const count     = document.getElementById('col-count');
   container.innerHTML = '';
   count.textContent = cols.length ? cols.length + ' collection' + (cols.length !== 1 ? 's' : '') : '';
 
   if (!cols.length) {
-    container.appendChild(empty);
-    empty.style.display = 'block';
+    container.innerHTML = '<div style="padding:20px 12px;color:var(--dim);font-size:12px;line-height:1.6">No collections yet.<br>Run <code>mm add &lt;name&gt;/&lt;request&gt;</code> to create one.</div>';
     return;
   }
-  empty.style.display = 'none';
 
   for (const col of cols) {
     const reqs = await api('GET', '/api/collections/' + col).catch(() => []);
@@ -501,13 +493,10 @@ function renderResponse(r) {
 async function loadHistory() {
   const entries = await api('GET', '/api/history').catch(() => []);
   const inner   = document.getElementById('history-inner');
-  const label   = document.getElementById('hist-label');
-  const empty   = document.getElementById('hist-empty');
-  inner.innerHTML = '';
-  inner.appendChild(label);
+  inner.innerHTML = '<div id="hist-label">History</div>';
 
   if (!entries.length) {
-    inner.appendChild(empty);
+    inner.insertAdjacentHTML('beforeend', '<div id="hist-empty" style="padding:0 16px;color:var(--dim);font-size:12px;display:flex;align-items:center">No requests yet.</div>');
     return;
   }
 
